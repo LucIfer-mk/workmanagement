@@ -1,4 +1,3 @@
-
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
@@ -197,28 +196,33 @@ def adminpage():
 
     #------------Manage Staff ---------#
     def manage_staff():
-            #___________________Fetch data from database 
-        conn = pymysql.connect(
-                    host="localhost",
-                    user="root",
-                    password="mkkapri",
-                    database="workplacedb"
-                        )
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT name, contact, department, WORK_email  FROM staff")
-        data = cursor.fetchall()
-        staff_table_data = []
-        for data in data:
-            staff_table_data.append({
-                "Name":data[0],
-                "Contact":data[1],
-                "Department":data[2],
-                "Email":data[3]
-                }
-            )
-        cursor.close()
-        conn.close()
+        #___________________Fetch data from database 
+        try:
+            conn = pymysql.connect(
+                        host="localhost",
+                        user="root",
+                        password="mkkapri",
+                        database="workplacedb"
+                            )
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT name, contact, department, work_email FROM staff")
+            data = cursor.fetchall()
+            staff_table_data = []
+            for row in data:
+                staff_table_data.append({
+                    "Name":row[0],
+                    "Contact":row[1],
+                    "Department":row[2],
+                    "Email":row[3]
+                    }
+                )
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            messagebox.showerror("Database Error", f"Error connecting to database: {str(e)}")
+            return
+            
         # Main window
         root = tk.Tk()
         root.title("Manage Staff")
@@ -252,20 +256,58 @@ def adminpage():
         def remove_staff():
             selected = staff_table.selection()
             if not selected:
+                messagebox.showwarning("Warning", "Please select a staff member to remove.")
                 return  
-            # Get the Name  of selected item
+            # Get the Name of selected item
             staff_name = staff_table.item(selected[0])['values'][0]
-            # Remove from DB
-            conn = pymysql.connect(host="localhost", user="root", password="mkkapri", database="workplacedb")
-            cursor = conn.cursor()
-            sql = "DELETE FROM staff WHERE name=%s"  # Assuming 'name' is unique, otherwise use a better key
-            cursor.execute(sql, (staff_name,))
-            conn.commit()
-            cursor.close()
-            conn.close()
             
-            # Remove from Treeview
-            staff_table.delete(selected[0])
+            # Confirm deletion with warning about related data
+            result = messagebox.askyesno("Confirm Delete", 
+                f"Are you sure you want to remove {staff_name}?\n\n"
+                "WARNING: This will also delete all related records including:\n"
+                "- Attendance records\n"
+                "- Payment statements\n"
+                "- Other associated data\n\n"
+                "This action cannot be undone!")
+            if not result:
+                return
+                
+            try:
+                conn = pymysql.connect(host="localhost", user="root", password="mkkapri", database="workplacedb")
+                cursor = conn.cursor()
+                
+                # First, get the staff ID for the name
+                cursor.execute("SELECT id FROM staff WHERE name=%s", (staff_name,))
+                staff_result = cursor.fetchone()
+                if not staff_result:
+                    messagebox.showerror("Error", "Staff member not found!")
+                    return
+                    
+                staff_id = staff_result[0]
+                
+                # Delete related records first (in order of dependencies)
+                # Delete from statement table first
+                cursor.execute("DELETE FROM statement WHERE staff_id=%s", (staff_id,))
+                
+                # Delete from staff_attendance table
+                cursor.execute("DELETE FROM staff_attendance WHERE staff_id=%s", (staff_id,))
+                
+                # Add any other related tables here if they exist
+                # cursor.execute("DELETE FROM other_table WHERE staff_id=%s", (staff_id,))
+                
+                # Finally delete from staff table
+                cursor.execute("DELETE FROM staff WHERE id=%s", (staff_id,))
+                
+                conn.commit()
+                cursor.close()
+                conn.close()
+                
+                # Remove from Treeview
+                staff_table.delete(selected[0])
+                messagebox.showinfo("Success", "Staff member and all related records removed successfully.")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to remove staff: {str(e)}")
 
         remove_btn = tk.Button(btn_frame, text="Remove Staff", font=("Arial", 10, "bold"), bg="red", fg="white", command=remove_staff,
                             width=15)
@@ -275,32 +317,36 @@ def adminpage():
         def update_staff():
             selected = staff_table.selection()
             if not selected:
+                messagebox.showwarning("Warning", "Please select a staff member to update.")
                 return  # nothing selected
             values = staff_table.item(selected[0])['values']
-            # Unpack current values
+            old_name = values[0]  # Store the original name
+            
             # Popup window
             popup = tk.Toplevel(root)
             popup.title("Update Staff")
             popup.geometry("300x250")
 
-            # Labels and Entry fields
+            # Labels and Entry fields with current values
             tk.Label(popup, text="Name:").pack()
             name_entry = tk.Entry(popup)
+            name_entry.insert(0, values[0])  # Pre-fill with current value
             name_entry.pack()
 
             tk.Label(popup, text="Contact:").pack()
             contact_entry = tk.Entry(popup)
+            contact_entry.insert(0, values[1])  # Pre-fill with current value
             contact_entry.pack()
 
             tk.Label(popup, text="Department:").pack()
             dept_entry = tk.Entry(popup)
+            dept_entry.insert(0, values[2])  # Pre-fill with current value
             dept_entry.pack()
     
             tk.Label(popup, text="Email:").pack()
             email_entry = tk.Entry(popup)
+            email_entry.insert(0, values[3])  # Pre-fill with current value
             email_entry.pack()
-
-            #TODO VVIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 
             def save_update():
                 new_name = name_entry.get()
@@ -308,16 +354,22 @@ def adminpage():
                 new_dept = dept_entry.get()
                 new_email = email_entry.get()
 
-                conn = pymysql.connect(host="localhost", user="root", password="mkkapri", database="workplacedb")
-                cursor = conn.cursor()
-                    # Update query - assuming name is unique key
-                sql = """UPDATE staff SET name=%s, contact=%s, department=%s, WORK_email=%s WHERE name=%s"""
-                conn.commit()
-                cursor.close()
-                conn.close()
+                try:
+                    conn = pymysql.connect(host="localhost", user="root", password="mkkapri", database="workplacedb")
+                    cursor = conn.cursor()
+                    # Update query - using the original name to identify the record
+                    sql = """UPDATE staff SET name=%s, contact=%s, department=%s, work_email=%s WHERE name=%s"""
+                    cursor.execute(sql, (new_name, new_contact, new_dept, new_email, old_name))
+                    conn.commit()
+                    cursor.close()
+                    conn.close()
                     # Update treeview
-                staff_table.item(selected[0], values=(new_name, new_contact, new_dept, new_email))
-                popup.destroy()
+                    staff_table.item(selected[0], values=(new_name, new_contact, new_dept, new_email))
+                    messagebox.showinfo("Success", "Staff details updated successfully.")
+                    popup.destroy()
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to update staff: {str(e)}")
+                    
             tk.Button(popup, text="Save", command=save_update).pack(pady=10)
 
         update_btn = tk.Button(btn_frame, text="Update Details", font=("Arial", 10, "bold"), bg="red", fg="white",command=update_staff,
@@ -339,68 +391,77 @@ def adminpage():
     def pay_salary():
         from collections import defaultdict
 
-        conn = pymysql.connect(
-            host="localhost",
-            user="root",
-            password="mkkapri",
-            database="workplacedb"   
-        )
-        cursor = conn.cursor()
+        try:
+            conn = pymysql.connect(
+                host="localhost",
+                user="root",
+                password="mkkapri",
+                database="workplacedb"   
+            )
+            cursor = conn.cursor()
 
-        cursor.execute("""SELECT
-                            s.id ,
-                            s.name, 
-                            s.account_number, 
-                            s.ird_number, 
-                            s.pay_rate,
-                            sa.started_reom,
-                            sa.end_time
-                        FROM staff s
-                        INNER JOIN staff_attendance sa 
-                        ON s.id = sa.staff_id;""")
-        data =  cursor.fetchall()
-        
-        staff_hours = defaultdict(lambda: {
-            "Name": None,
-            "Account": None,
-            "IRD": None,
-            "Pay": None,
-            "WorkedHR": 0.0
-        })
-
-        for row in data:
-            _id = row[0]
-            name = row[1]
-            account = row[2]
-            ird = row[3]
-            pay_rate = row[4]
-            start_time = datetime.strptime(row[5], "%H:%M")
-            end_time = datetime.strptime(row[6], "%H:%M")
-            worked_delta = end_time - start_time
-            worked_hours = worked_delta.total_seconds() / 3600
-
-            if staff_hours[_id]["Name"] is None:
-                staff_hours[_id]["Name"] = name
-                staff_hours[_id]["Account"] = account
-                staff_hours[_id]["IRD"] = ird
-                staff_hours[_id]["Pay"] = pay_rate
-
-            staff_hours[_id]["WorkedHR"] += worked_hours
-
-        staff_table_data = []
-        for _id, info in staff_hours.items():
-            staff_table_data.append({
-                "ID": _id,
-                "Name": info["Name"],
-                "Account": info["Account"],
-                "IRD": info["IRD"],
-                "Pay": info["Pay"],
-                "WorkedHR": round(info["WorkedHR"], 2)
+            cursor.execute("""SELECT
+                                s.id ,
+                                s.name, 
+                                s.account_number, 
+                                s.ird_number, 
+                                s.pay_rate,
+                                sa.started_reom,
+                                sa.end_time
+                            FROM staff s
+                            INNER JOIN staff_attendance sa 
+                            ON s.id = sa.staff_id;""")
+            data =  cursor.fetchall()
+            
+            staff_hours = defaultdict(lambda: {
+                "Name": None,
+                "Account": None,
+                "IRD": None,
+                "Pay": None,
+                "WorkedHR": 0.0
             })
 
-        # print(staff_table_data)
-        cursor.close()
-        conn.close()
+            for row in data:
+                _id = row[0]
+                name = row[1]
+                account = row[2]
+                ird = row[3]
+                pay_rate = row[4]
+                
+                try:
+                    start_time = datetime.strptime(str(row[5]), "%H:%M")
+                    end_time = datetime.strptime(str(row[6]), "%H:%M")
+                    worked_delta = end_time - start_time
+                    worked_hours = worked_delta.total_seconds() / 3600
+                except (ValueError, TypeError) as e:
+                    print(f"Error parsing time for staff {name}: {e}")
+                    worked_hours = 0
+
+                if staff_hours[_id]["Name"] is None:
+                    staff_hours[_id]["Name"] = name
+                    staff_hours[_id]["Account"] = account
+                    staff_hours[_id]["IRD"] = ird
+                    staff_hours[_id]["Pay"] = pay_rate
+
+                staff_hours[_id]["WorkedHR"] += worked_hours
+
+            staff_table_data = []
+            for _id, info in staff_hours.items():
+                staff_table_data.append({
+                    "ID": _id,
+                    "Name": info["Name"],
+                    "Account": info["Account"],
+                    "IRD": info["IRD"],
+                    "Pay": info["Pay"],
+                    "WorkedHR": round(info["WorkedHR"], 2)
+                })
+
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            messagebox.showerror("Database Error", f"Error connecting to database: {str(e)}")
+            return
+            
         # Main window
         root = tk.Tk()
         root.title("Pay Salary")
@@ -433,6 +494,7 @@ def adminpage():
         def paysalary():
             selected_item = salary_table.selection()
             if not selected_item:
+                messagebox.showwarning("Warning", "Please select a staff member to pay salary.")
                 return
             
             staff_values = salary_table.item(selected_item, "values")
@@ -494,28 +556,32 @@ def adminpage():
                 tax_deductions = tax_amount
                 netpay = net_pay
                 payment_method = "Bank Transfer"
-                remarks = f"Salaery have been paid for {paymentdate}"
-                # print(paymentdate, staff_id)
-                conn = pymysql.connect(
-                host="localhost",
-                user="root",
-                password="mkkapri",
-                database="workplacedb"   
-                )
-                cursor = conn.cursor()
-
-                sql = """
-                    INSERT INTO statement 
-                    (staff_id, payment_date, gross_pay, tax_deductions, net_pay, payment_method, remarks) 
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """
+                remarks = f"Salary have been paid for {paymentdate}"
                 
-                values = (staff_id, paymentdate, grosspay, tax_deductions, netpay, payment_method, remarks)
-                cursor.execute(sql, values)
-                conn.commit() 
-                cursor.close()
-                conn.close()
-                popup.destroy()
+                try:
+                    conn = pymysql.connect(
+                    host="localhost",
+                    user="root",
+                    password="mkkapri",
+                    database="workplacedb"   
+                    )
+                    cursor = conn.cursor()
+
+                    sql = """
+                        INSERT INTO statement 
+                        (staff_id, payment_date, gross_pay, tax_deductions, net_pay, payment_method, remarks) 
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    
+                    values = (staff_id, paymentdate, grosspay, tax_deductions, netpay, payment_method, remarks)
+                    cursor.execute(sql, values)
+                    conn.commit() 
+                    cursor.close()
+                    conn.close()
+                    messagebox.showinfo("Success", "Payment processed successfully!")
+                    popup.destroy()
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to save payment: {str(e)}")
 
             tk.Button(popup, text="Confirm Payment", font=("Arial", 10, "bold"), bg="green", fg="white",
                     command=save_statement).pack(pady=10)
@@ -536,17 +602,22 @@ def adminpage():
 
     #--------------statement ------------#
     def statement():
-        conn = pymysql.connect(
-            host="localhost",
-            user="root",
-            password="mkkapri",
-            database="workplacedb"
-        )
-        cursor = conn.cursor()
-        cursor.execute("SELECT staff_id, payment_date, gross_pay, tax_deductions, net_pay, payment_method, remarks FROM statement")
-        statements = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        try:
+            conn = pymysql.connect(
+                host="localhost",
+                user="root",
+                password="mkkapri",
+                database="workplacedb"
+            )
+            cursor = conn.cursor()
+            cursor.execute("SELECT staff_id, payment_date, gross_pay, tax_deductions, net_pay, payment_method, remarks FROM statement")
+            statements = cursor.fetchall()
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            messagebox.showerror("Database Error", f"Error connecting to database: {str(e)}")
+            return
+            
         root = tk.Tk()
         root.state("zoomed")
         root.title("Statements")
