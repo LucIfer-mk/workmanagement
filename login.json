@@ -1,0 +1,28 @@
+{
+    "user":[
+        {
+            "id":1,
+            "name":"manoj",
+            "password":"mkkapri",
+            "rol":"admin"
+        },
+        {
+            "id":2,
+            "name":"shrezal",
+            "password":"shrezal",
+            "rol":"staff"
+        },
+         {
+            "id":3,
+            "name":"kushum",
+            "password":"kushum",
+            "rol":"staff"
+        },
+         {
+            "id":3,
+            "name":"rajina",
+            "password":"rajina",
+            "rol":"staff"
+        }
+    ]
+}
